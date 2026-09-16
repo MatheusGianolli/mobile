@@ -1,0 +1,185 @@
+Este é um excelente desafio prático para consolidar o uso do TanStack Query no ecossistema React Native. Como você já tem a base do projeto estruturada (rotas, API, componentes visuais e tipagem), o foco aqui é puramente o gerenciamento de estado assíncrono e o cache das requisições.
+
+Abaixo, detalho o passo a passo e os blocos de código necessários para concluir cada uma das missões exigidas na sua avaliação. Lembre-se de adaptar os caminhos de importação ('../services/api', etc.) de acordo com a estrutura real das pastas do seu repositório.
+
+Missão 1 — Exibir o cardápio
+O hook useDishes já está pronto, então você só precisa conectá-lo à interface e tratar os três estados fundamentais: carregamento, erro e sucesso.
+
+No componente da tela do Cardápio (provavelmente onde está o TODO):
+
+TypeScript
+import React from 'react';
+import { View, Text, ActivityIndicator, FlatList } from 'react-native';
+// Ajuste o caminho de acordo com seu projeto
+import { useDishes } from '../hooks/useDishes'; 
+
+export default function MenuScreen({ categoryId }) {
+  // 1. Executa o hook com a categoria
+  const { data: dishes, isLoading, isError } = useDishes(categoryId);
+
+  // 2. Estado de carregamento
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#0000ff" />
+      </View>
+    );
+  }
+
+  // 3. Estado de erro
+  if (isError) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <Text>Ocorreu um erro ao carregar o cardápio. Tente novamente.</Text>
+      </View>
+    );
+  }
+
+  // 4. Sucesso: renderiza a lista substituindo o mock
+  return (
+    <FlatList
+      data={dishes}
+      keyExtractor={(item) => String(item.id)}
+      renderItem={({ item }) => (
+        // Utilize o componente de Card já pronto no seu projeto
+        <DishCard dish={item} />
+      )}
+    />
+  );
+}
+Não se esqueça de fazer o commit após finalizar esta etapa!
+
+Missão 2 — Carregar o detalhe do prato
+Aqui você precisará criar o seu primeiro hook do zero usando useQuery.
+
+1. Crie o arquivo: src/hooks/useDish.ts (ou .js)
+
+TypeScript
+import { useQuery } from '@tanstack/react-query';
+// Importe a função da API já existente
+import { getDishById } from '../services/api'; 
+
+export function useDish(dishId: string) {
+  return useQuery({
+    // queryKey única que identifica esta requisição específica
+    queryKey: ['dish', dishId],
+    // queryFn recebe a função que fará o fetch
+    queryFn: () => getDishById(dishId),
+    // Evita requisições se o dishId for indefinido
+    enabled: !!dishId, 
+  });
+}
+2. No componente da Tela de Detalhes:
+
+TypeScript
+import { useDish } from '../hooks/useDish';
+
+export default function DishDetailScreen({ route }) {
+  // O identificador já vem dos parâmetros da rota
+  const { dishId } = route.params; 
+  
+  const { data: dish, isLoading, isError } = useDish(dishId);
+
+  if (isLoading) return <ActivityIndicator />;
+  if (isError) return <Text>Erro ao carregar os detalhes do prato.</Text>;
+
+  return (
+    <View>
+      {/* Renderize a imagem, nome, descrição e preço do 'dish' retornado */}
+      <Text>{dish.name}</Text>
+      <Text>{dish.description}</Text>
+      <Text>R$ {dish.price}</Text>
+    </View>
+  );
+}
+Missão 3 e 4 — Favoritar um prato e Atualizar a Tela (Combinados)
+Para que a missão 4 funcione, a mutation da missão 3 precisa invalidar a query de favoritos. Faremos as duas juntas para garantir o fluxo.
+
+1. Crie o arquivo para buscar os favoritos: src/hooks/useFavorites.ts
+
+TypeScript
+import { useQuery } from '@tanstack/react-query';
+import { getFavorites } from '../services/api';
+
+export function useFavorites() {
+  return useQuery({
+    queryKey: ['favorites'],
+    queryFn: getFavorites,
+  });
+}
+Aplique este hook na tela de favoritos exatamente com a mesma lógica de Loading/Error/Success da Missão 1.
+
+2. Crie o arquivo de mutation: src/hooks/useAddFavorite.ts
+
+TypeScript
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { addFavorite } from '../services/api';
+
+export function useAddFavorite() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (dishId: string) => addFavorite(dishId),
+    onSuccess: () => {
+      // ISSO É CRUCIAL PARA A MISSÃO 4: 
+      // Invalida o cache, forçando a tela de favoritos a buscar os dados novos
+      queryClient.invalidateQueries({ queryKey: ['favorites'] });
+    },
+  });
+}
+3. No componente do Botão de Favoritar (na tela de detalhes):
+
+TypeScript
+import { useAddFavorite } from '../hooks/useAddFavorite';
+
+export default function FavoriteButton({ dishId }) {
+  const { mutate, isPending, isSuccess, isError } = useAddFavorite();
+
+  return (
+    <View>
+      <Button 
+        title={isPending ? "Favoritando..." : "Favoritar"}
+        onPress={() => mutate(dishId)}
+        disabled={isPending} // Impede múltiplos toques
+      />
+      {isSuccess && <Text>Prato favoritado!</Text>}
+      {isError && <Text>Erro ao favoritar.</Text>}
+    </View>
+  );
+}
+Missão 5 — Desfavoritar um prato
+Fechando o ciclo, a lógica de remoção é praticamente idêntica à de adição, garantindo novamente a invalidação do cache para a lista atualizar em tempo real.
+
+1. Crie o arquivo: src/hooks/useRemoveFavorite.ts
+
+TypeScript
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { removeFavorite } from '../services/api';
+
+export function useRemoveFavorite() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (dishId: string) => removeFavorite(dishId),
+    onSuccess: () => {
+      // Invalida a lista para o prato sumir da tela de favoritos automaticamente
+      queryClient.invalidateQueries({ queryKey: ['favorites'] });
+    },
+  });
+}
+2. No componente da Tela de Favoritos (Botão Desfavoritar):
+
+TypeScript
+import { useRemoveFavorite } from '../hooks/useRemoveFavorite';
+
+export function RemoveFavoriteButton({ dishId }) {
+  const { mutate, isPending } = useRemoveFavorite();
+
+  return (
+    <Button 
+      title={isPending ? "Removendo..." : "Desfavoritar"}
+      onPress={() => mutate(dishId)}
+      disabled={isPending}
+    />
+  );
+}
